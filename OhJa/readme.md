@@ -1,6 +1,6 @@
 # Courseproject for OhJa
-## Project task
--Make a small game using these three pictures and pygame (in a single returnable .py)
+## Given task for project
+Make a small game using these three pictures and pygame (in a single returnable .py)
 
 ## Game
 Collect coins, and avoid the monsters.
