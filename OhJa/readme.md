@@ -14,4 +14,7 @@ d - move right
 ```
 
 ## run
+```
+pip install pygame
 python main.py
+```
