@@ -5,25 +5,33 @@
  Try to collect 100 coins, and avoid the monsters!
 
 """
+# import os
 import sys
 import math
 import random
 import logging
-import pygame
+from abc import ABC, abstractmethod
 
 logger = logging.getLogger(__name__)
 
 stream_handler = logging.StreamHandler(sys.stdout)
-formatter = logging.Formatter('%(asctime)s - %(message)s')
+# file_handler = logging.FileHandler('formatted.log')
+formatter = logging.Formatter('%(asctime)s %(levelname)s - %(message)s')
 stream_handler.setFormatter(formatter)
 logger.addHandler(stream_handler)
 logger.setLevel(logging.WARN)  # INFO was used for some tests
+
+try:
+    import pygame
+except ModuleNotFoundError as err:
+    logger.fatal("%s, exiting...\n", err)
+    exit()
 
 # Default game screen resolution
 RESO = (800, 600)
 
 
-class InteractionObject:
+class InteractionObject(ABC):
     """ Default class for all interacting objects in the game """
 
     def __init__(
@@ -37,14 +45,14 @@ class InteractionObject:
         self.__image = pygame.image.load(r_image)
 
         # take size width and height of objects image
-        self.__w_obj = self.image.get_width()
-        self.__h_obj = self.image.get_height()
+        self.w_obj = self.image.get_width()
+        self.h_obj = self.image.get_height()
 
         # Boundaries of movement based on screen resolution
         self.reso = RESO
 
         # Set initial velocity
-        self.__speed = speed
+        self.speed = speed
 
         # initial angle
         self.angle = 0
@@ -53,13 +61,12 @@ class InteractionObject:
         if top_start:
             self.random_top_start()
         else:
-            self.__location = start_location
+            self.location = start_location
 
-    def random_top_start(self) -> tuple:
+    def random_top_start(self) -> None:
         """ choose random starting location from top with rand x, -200 on y"""
-        self.__location = (random.randint(20,
-                                          (self.reso[0] - self.__w_obj - 20)),
-                           -200)
+        self.location = (random.randint(20, (self.reso[0] - self.w_obj - 20)),
+                         -200)
 
     @property
     def image(self):
@@ -71,21 +78,39 @@ class InteractionObject:
         """ Return width of object """
         return self.__w_obj
 
+    @w_obj.setter
+    def w_obj(self, new_width: int) -> None:
+        """ Return width of object """
+        if new_width <= 0:
+            logger.fatal("Width of object image cannot be negative or zero %s",
+                         new_width)
+            raise ValueError
+        self.__w_obj = new_width
+
     @property
     def h_obj(self) -> int:
         """ Return height of object """
         return self.__h_obj
 
+    @h_obj.setter
+    def h_obj(self, new_height: int) -> None:
+        """ Return height of object """
+        if new_height <= 0:
+            logger.fatal(
+                "Height of object image cannot be negative or zero %s",
+                new_height)
+            raise ValueError
+        self.__h_obj = new_height
+
     @property
-    def location(self) -> tuple:
+    def location(self) -> tuple[int, int]:
         """ Return current location of object"""
         return self.__location
 
     @location.setter
-    def location(self, new_location: tuple[int, int]):
+    def location(self, new_location: tuple[int, int]) -> None:
         """
         Set new location for object.
-        
         Bounds:
         Ground: Resolution height - Object.height
         Left bound: 0
@@ -98,7 +123,7 @@ class InteractionObject:
         bound_y = self.reso[1] - self.h_obj
 
         if (new_x > bound_right) or (bound_left > new_x) or (new_y > bound_y):
-            # logger.info(f"New location out of bounds: {new_location}")
+            # logger.info("New location out of bounds: %s", new_location)
             return
 
         self.__location = new_location
@@ -110,7 +135,16 @@ class InteractionObject:
 
     @speed.setter
     def speed(self, new_speed: tuple[int, int]):
+        """ Check that new speed is at least not larger than game resolution """
+        x_speed, y_speed = new_speed
+        if x_speed > self.reso[0] or y_speed > self.reso[1]:
+            logger.fatal("New speed is too fast %s", new_speed)
+            raise ValueError
         self.__speed = new_speed
+
+    @abstractmethod
+    def move(self, commands):
+        """ objects movement behaviour """
 
 
 class Robo(InteractionObject):
@@ -124,26 +158,29 @@ class Robo(InteractionObject):
         super().__init__(r_image=r_image,
                          speed=speed,
                          start_location=start_location)
+        self.jump = False
 
-    def robo_move(self, way: list):
-        """ Interpret events from command dict true/false 
-            Dictionaries are nowadays ordered, so 
-            first item is left, then right, and then jump.
+    def move(self, commands: list):
+        """ Interpret events from command dict true/false
+            Dictionaries are nowadays ordered;
+            commands[0] : move left
+            commands[1] : move right
+            commands[2] : teleport short distance to moving direction
         """
         x, y = self.location
-        x_speed, y_speed = self.speed
+        x_speed, _ = self.speed
 
         # left
-        if way[0] and x > 0:
+        if commands[0] and x > 0:
             self.location = (x - x_speed, y)
             # teleport to speed dir
-            if way[2] and x - 100 > 0:
+            if commands[2] and x - 100 > 0:
                 self.location = (x - 70, y)
 
         # right
-        if way[1] and x < self.reso[0] - self.w_obj:
+        if commands[1] and x < self.reso[0] - self.w_obj:
             self.location = (x + x_speed, y)
-            if way[2] and x + 100 <= self.reso[1] + self.w_obj:
+            if commands[2] and x + 100 <= self.reso[1] + self.w_obj:
                 self.location = (x + 70, y)
 
 
@@ -159,8 +196,8 @@ class Ghost(InteractionObject):
                          start_location=(0, 0),
                          top_start=True)
 
-    def ghost_move(self):
-        """ make ghost falling wavy """
+    def move(self, commands=None):
+        """ Make ghost falling wavy, and use boundaries set by .location """
         self.angle += 0.2
         x_osc = math.cos(self.angle)
         # Ghost speed
@@ -182,8 +219,8 @@ class Coin(InteractionObject):
                          start_location=(0, 0),
                          top_start=True)
 
-    def coin_move(self):
-        """ move coins, collision check after in for loop """
+    def move(self, commands=None):
+        """ Move coin within boundaries set by .location """
         x, y = self.location
         _, y_speed = self.speed
         self.location = (x, y + y_speed)
@@ -223,6 +260,7 @@ class CoinCollector:
         global RESO
 
         pygame.init()
+        pygame.display.list_modes()
         self.__robos = IObjecthandler()  # more than 1 player?
         self.__coins = IObjecthandler()
         self.__ghosts = IObjecthandler()
@@ -313,11 +351,11 @@ class CoinCollector:
         # draw robot and move it
         self.screen.blit(self.robo.image, self.robo.location)
         way = [d for _, d in self.commands.items()]
-        self.robo.robo_move(way)
+        self.robo.move(way)
 
         # draw coins
         for i, iobj in enumerate(self.__coins.objects):
-            iobj.coin_move()
+            iobj.move()
             c_touching = self.istouching(iobj)
             if c_touching == 0:
                 coins_to_delete.append(i)
@@ -335,7 +373,7 @@ class CoinCollector:
             return
         # draw ghosts
         for j, iobj in enumerate(self.__ghosts.objects):
-            iobj.ghost_move()
+            iobj.move()
             ghost_touching = self.istouching(iobj)
             if ghost_touching == 0:
                 ghosts_to_delete.append(j)
@@ -440,7 +478,7 @@ class CoinCollector:
             True, (255, 255, 255))
 
         tips_2rect = tips_2.get_rect(center=(self.reso[0] / 2,
-                                             self.reso[1] - 40))
+                                             self.reso[1] - 60))
         self.screen.blit(tips_2, tips_2rect)
         pygame.display.flip()
 
